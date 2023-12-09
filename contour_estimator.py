@@ -124,7 +124,7 @@ def main(INPUT_FILE, ALPHA, OUTPUT_PATH, VERBOSE_MODE, VISUALIZE):
 
         overlap_img_path = os.path.join(OUTPUT_PATH,filename+"_overlap"+ext)
         try:
-            cv2.imwrite(contour_img_path, cv2.cvtColor(result_overlap, cv2.COLOR_BGR2RGB))
+            cv2.imwrite(overlap_img_path, cv2.cvtColor(result_overlap, cv2.COLOR_BGR2RGB))
         except:
             print(f"Neizdevās saglabāt {overlap_img_path}")
 
