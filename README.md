@@ -13,8 +13,10 @@ Argumenti:
 
 ```--output```, ```-o``` - norāde uz izejas failu atrašanās vietu;
 
-```--alpha```, ```-a``` - parametrs α nosaka aproksimācijas precizitāti. Noklusējumā α=0.01
+```--overwrite_json```, ```-j``` - pārrakstīt JSON failu;
 
-```--draw```, ```-d``` - vizualizēt rezultātu (automātiski, ja nav norādīts ```output```)
+```--alpha```, ```-a``` - parametrs α nosaka aproksimācijas precizitāti. Noklusējumā α=0.01;
 
-```--verbose```, ```-v``` - izvadīt papildus informāciju
+```--draw```, ```-d``` - vizualizēt rezultātu (automātiski, ja nav norādīts ```output```);
+
+```--verbose```, ```-v``` - izvadīt papildus informāciju.
