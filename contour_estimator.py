@@ -1,29 +1,10 @@
-# Importē nepieciešamās bibliotēkas un norāda apstrādājamo attēlu
+# Importē nepieciešamās bibliotēkas
 import cv2
 import numpy as np
 from matplotlib import pyplot as plt
 import os
 import argparse
 import json
-
-def is_part_of_shape(point, shape):
-    x, y = point
-    intersection_count = 0
-
-    for i in range(len(shape)):
-        x1, y1 = shape[i]
-        x2, y2 = shape[(i + 1) % len(shape)]
-        if y == y1 or y == y2:
-            y += 1e-8
-        if y1 < y < y2 or y2 < y < y1:
-            if x1 == x2 and x <= x1:
-                intersection_count += 1
-            elif x1 != x2:
-                intersect_x = (y - y1) * (x2 - x1) / (y2 - y1) + x1
-                if x <= intersect_x:
-                    intersection_count += 1
-
-    return intersection_count % 2 != 0
 
 def main(INPUT_FILE, ALPHA, OUTPUT_PATH, VERBOSE_MODE, VISUALIZE, OVERWRITE_JSON):
     def verbose_print(message):
@@ -89,10 +70,7 @@ def main(INPUT_FILE, ALPHA, OUTPUT_PATH, VERBOSE_MODE, VISUALIZE, OVERWRITE_JSON
     outer_contour_id = np.argmax(indices)
 
     # Analizē atrastās kontūras
-    for i, contour in enumerate(contours):
-        # attiecīgās kontūras stūra punktu saraksts
-        all_contour_corners = []
-        
+    for i, contour in enumerate(contours):      
         # aprēķina precizitātes parametru
         closed_shape=True
         epsilon = ALPHA * cv2.arcLength(contour, closed_shape)
@@ -100,7 +78,6 @@ def main(INPUT_FILE, ALPHA, OUTPUT_PATH, VERBOSE_MODE, VISUALIZE, OVERWRITE_JSON
         # Aproksimē attiecīgo kontūru līdz daudzstūriem 
         approx = cv2.approxPolyDP(contour, epsilon, True)
         approx_flat = [np.squeeze(arr, axis=0) for arr in approx]
-        contour_flat = [np.squeeze(arr, axis=0) for arr in contour]
         
         if len(approx) == 0:
             raise Exception("Neizdevās aproksimēt poligonus no kontūrām")
@@ -112,9 +89,14 @@ def main(INPUT_FILE, ALPHA, OUTPUT_PATH, VERBOSE_MODE, VISUALIZE, OVERWRITE_JSON
 
         poly_functions[i] = {}
         if (not JSON_EXISTS or OVERWRITE_JSON) and i == outer_contour_id:
-            poly_functions[i]["outer"] = True
+            poly_functions[i]["is_outer"] = True
         else:
-            poly_functions[i]["outer"] = False
+            poly_functions[i]["is_outer"] = False
+
+        if i == outer_contour_id:
+            verbose_print("==== Ārējā kontūra ====")
+        else:
+            verbose_print(f"==== {i}. šķērslis ====")
 
         # Saglabā stūra punktus, uzzīmē tos uz attēla
         last_corner_point = np.array([-1, -1])
@@ -131,34 +113,24 @@ def main(INPUT_FILE, ALPHA, OUTPUT_PATH, VERBOSE_MODE, VISUALIZE, OVERWRITE_JSON
             if not JSON_EXISTS or OVERWRITE_JSON:
                 # Iegūst taisnes vienādojumu
                 x1, y1 = corner_point
-                x2, y2 = approx_flat[(i+1) % len(approx_flat)]
+                x2, y2 = approx_flat[(j+1) % len(approx_flat)]
                 
                 if x2-x1 == 0 or y2-y1 == 0:
                     x1 += 1
                     y1 += 1
                 
-                A = (x2-x1) / (y2-y1)
+                A = (y2-y1) / (x2-x1)
                 B = -1
                 C = y1 - A * x1
-                ineq_case_less = "lambda x, y, A=A, B=B, C=C: A*x + B*y + C < 0"
-                ineq_case_greater_eq = "lambda x, y, A=A, B=B, C=C: A*x + B*y + C >= 0"
-                
-                # Pārbauda, vai vidusspunkts pieder šķērslim
-                x_mid = max(x2, x1) - min(x2, x1)
-                y_mid = max(y2, y1) - min(y2, y1)
-                P_above_mid = (x_mid+1e-8, y_mid+1e-8)
-
-                is_in_shape = is_part_of_shape(P_above_mid, contour_flat)
-                if i == outer_contour_id:
-                    is_in_shape = not is_in_shape
-
+            
                 poly_functions[i][j] = {
-                    "y": "lambda x, A=A, B=B, C=C: int(A*x + C)",
-                    "y_ineq": ineq_case_less if is_in_shape else ineq_case_greater_eq,
-                    "y_str": f"{A} * x {B} * y + {C} < 0" if is_in_shape else f"{A} * x {B} * y + {C} >= 0",
+                    "y": f"lambda x: int({A}*x + {C})",
+                    "y_can":f"labmda x, y: {A}*x + {B}*y + {C} == 0",
                     "x_start": x1.tolist(),
                     "x_end": x2.tolist()
                 }
+                y_str = f"{A:.3f}*x {B:.3f}*y + {C:.3f} = 0" if C>=0 else f"{A:.3f}*x {B:.3f}*y {C:.3f} = 0"
+                verbose_print(f"{j+1}.\t{y_str}")
 
             cv2.circle(result_only_contours, corner_point, 7, (0, 0, 255), -1)
 
@@ -207,7 +179,7 @@ if __name__ == "__main__":
     parser.add_argument("--input", "-i", help="Ceļš uz ieejas failu", type=str)
     parser.add_argument("--alpha", "-a", help="Daudzstūru aproksimācijas precizitāte (zemāka -> precīzāk).", default=0.01, type=float)
     parser.add_argument("--output", "-o", help="Izejas attēlu atrašanās vieta.", type=str)
-    parser.add_argument("--overwrite_json", "-j", action="store_true", help="Pārrakstīt JSON failu.")
+    parser.add_argument("--overwrite_json", "-j", action="store_true", help="Pārrakstīt JSON failu. in")
     parser.add_argument("--verbose", "-v", action="store_true", help="Rādīt pilnu programmas izvadi.")
     parser.add_argument("--draw", "-d", action="store_true", help="Vizualizēt rezultātu.")
     args = parser.parse_args()
