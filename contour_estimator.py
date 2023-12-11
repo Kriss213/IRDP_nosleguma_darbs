@@ -6,7 +6,7 @@ import os
 import argparse
 import json
 
-def main(INPUT_FILE, ALPHA, OUTPUT_PATH, VERBOSE_MODE, VISUALIZE, OVERWRITE_JSON):
+def main(INPUT_FILE, ALPHA, OUTPUT_PATH, VERBOSE_MODE, VISUALIZE, OVERWRITE_JSON, INTERNAL_CALL):
     def verbose_print(message):
         if VERBOSE_MODE:
             print(message)
@@ -88,10 +88,11 @@ def main(INPUT_FILE, ALPHA, OUTPUT_PATH, VERBOSE_MODE, VISUALIZE, OVERWRITE_JSON
         cv2.drawContours(result_overlap, [approx], -1, (0,255,0), thickness=5)
 
         poly_functions[i] = {}
-        if (not JSON_EXISTS or OVERWRITE_JSON) and i == outer_contour_id:
-            poly_functions[i]["is_outer"] = True
-        else:
-            poly_functions[i]["is_outer"] = False
+        if (not JSON_EXISTS or OVERWRITE_JSON) or INTERNAL_CALL:
+            if i == outer_contour_id:
+                poly_functions[i]["is_outer"] = True
+            else:
+                poly_functions[i]["is_outer"] = False
 
         if i == outer_contour_id:
             verbose_print("==== Ārējā kontūra ====")
@@ -110,7 +111,7 @@ def main(INPUT_FILE, ALPHA, OUTPUT_PATH, VERBOSE_MODE, VISUALIZE, OVERWRITE_JSON
             #corners.append(corner_point)
             last_corner_point = corner_point
 
-            if not JSON_EXISTS or OVERWRITE_JSON:
+            if not JSON_EXISTS or OVERWRITE_JSON or INTERNAL_CALL:
                 # Iegūst taisnes vienādojumu
                 x1, y1 = corner_point
                 x2, y2 = approx_flat[(j+1) % len(approx_flat)]
@@ -137,7 +138,7 @@ def main(INPUT_FILE, ALPHA, OUTPUT_PATH, VERBOSE_MODE, VISUALIZE, OVERWRITE_JSON
     verbose_print("Izpilde veiksmīga")
 
     # Izvada un saglabā rezutlātus
-    if VISUALIZE:
+    if VISUALIZE and not INTERNAL_CALL:
         fig, axs = plt.subplots(1, 3, figsize=(15,5))
         axs[0].imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
         axs[0].set_title("Oriģinālā karte")
@@ -149,8 +150,9 @@ def main(INPUT_FILE, ALPHA, OUTPUT_PATH, VERBOSE_MODE, VISUALIZE, OVERWRITE_JSON
         axs[2].set_title("Pārklājums")
 
         fig.suptitle(f"Approksimēti daudzstūri pie α = {ALPHA}")
+        plt.show()
 
-    if OUTPUT_PATH:
+    if OUTPUT_PATH and not INTERNAL_CALL:
         contour_img_path = os.path.join(OUTPUT_PATH,filename+"_polygons"+ext)
         try:
             cv2.imwrite(contour_img_path, cv2.cvtColor(result_only_contours, cv2.COLOR_BGR2RGB))
@@ -163,7 +165,7 @@ def main(INPUT_FILE, ALPHA, OUTPUT_PATH, VERBOSE_MODE, VISUALIZE, OVERWRITE_JSON
         except:
             print(f"Neizdevās saglabāt {overlap_img_path}")
 
-    if not JSON_EXISTS or OVERWRITE_JSON:
+    if not JSON_EXISTS or OVERWRITE_JSON and not INTERNAL_CALL:
         json_str = json.dumps(poly_functions, indent=4)
         with open(json_file_name, "w") as json_file:
             json_file.write(json_str)
@@ -171,7 +173,10 @@ def main(INPUT_FILE, ALPHA, OUTPUT_PATH, VERBOSE_MODE, VISUALIZE, OVERWRITE_JSON
         print(f"Fails \"{json_file_name}\" saglabāts veiksmīgi!")
 
     verbose_print("Programmas izpilde pabeigta")
-    plt.show()
+    
+    X_pixels = len(image[0])
+    Y_pixels = len(image)
+    return poly_functions, X_pixels, Y_pixels
 
 if __name__ == "__main__":
     # Komandrindas argumentu apstrāde
@@ -182,6 +187,7 @@ if __name__ == "__main__":
     parser.add_argument("--overwrite_json", "-j", action="store_true", help="Pārrakstīt JSON failu. in")
     parser.add_argument("--verbose", "-v", action="store_true", help="Rādīt pilnu programmas izvadi.")
     parser.add_argument("--draw", "-d", action="store_true", help="Vizualizēt rezultātu.")
+    parser.add_argument("--internal_call", action="store_true", help="Paredzēts, kad izsauc no citas programmas.")
     args = parser.parse_args()
 
     INPUT_FILE = args.input
@@ -190,11 +196,12 @@ if __name__ == "__main__":
     VERBOSE_MODE = args.verbose
     VISUALIZE = args.draw
     OVERWRITE_JSON = args.overwrite_json
+    INTERNAL_CALL = args.internal_call
 
     if INPUT_FILE == None:
         raise Exception("Norādi ieejas failu!")
     
-    if not VISUALIZE and not OUTPUT_PATH:
+    if not VISUALIZE and not OUTPUT_PATH and not INTERNAL_CALL:
         VISUALIZE = True
 
     if not os.path.exists(INPUT_FILE):
@@ -206,4 +213,4 @@ if __name__ == "__main__":
     if OUTPUT_PATH and not os.path.exists(OUTPUT_PATH):
         raise Exception(f"Izejas mape \"{OUTPUT_PATH}\" netika atrasta.")
     
-    main(INPUT_FILE, ALPHA, OUTPUT_PATH, VERBOSE_MODE, VISUALIZE, OVERWRITE_JSON)
+    main(INPUT_FILE, ALPHA, OUTPUT_PATH, VERBOSE_MODE, VISUALIZE, OVERWRITE_JSON, INTERNAL_CALL)
