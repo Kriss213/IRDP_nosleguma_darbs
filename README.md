@@ -20,3 +20,30 @@ Argumenti:
 ```--draw```, ```-d``` - vizualizēt rezultātu (automātiski, ja nav norādīts ```output```);
 
 ```--verbose```, ```-v``` - izvadīt papildus informāciju.
+
+# Diskrētā plānošana
+### discrete_planner.py
+
+Darbināt ar
+```
+python discrete_planner.py --input --start X Y --goal X Y
+```
+Argumenti:
+
+```--input```, ```-i``` - obligāts arguments - norāde uz attēlu (2D karti);
+
+```--start```, ```-s``` - obilgāts arguments - sākuma punkta X Y;
+
+```--goal```, ```-g``` - obilgāts arguments - mērķa punkta X Y;
+
+```--grid_cols``` - režģa kolonu skaits (noklusējums=50);
+
+```--grid_rows``` - režģa rindu skaits (noklusējums=50);
+
+```--alpha```, ```-a``` - parametrs α nosaka aproksimācijas precizitāti. Noklusējumā α=0.01;
+
+```--output```, ```-o``` - norāde, kur saglabāt ceļa failu;
+
+```--verbose```, ```-v``` - izvadīt papildus informāciju.
+
+```--draw```, ```-d``` - vizualizēt rezultātu (automātiski, ja nav norādīts ```output```);

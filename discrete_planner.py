@@ -213,7 +213,7 @@ def visualize_path_n_visited_nodes(path, visited_nodes, colors, grid_points_X, g
 
 
 
-def main(INPUT_FILE, ALPHA, OUTPUT_PATH, VERBOSE_MODE, VISUALIZE):
+def main(INPUT_FILE, ALPHA, OUTPUT_PATH, VERBOSE_MODE, VISUALIZE, START, GOAL, GRID_SIZE_X, GRID_SIZE_Y):
     def verbose_print(message):
         if VERBOSE_MODE:
             print(message)
@@ -224,7 +224,7 @@ def main(INPUT_FILE, ALPHA, OUTPUT_PATH, VERBOSE_MODE, VISUALIZE):
     all_vertices, outer_poly_index = get_vertices_2D(poly_functions)
     verbose_print("Daudzstūru stūra punkti noteikti.")
     # uzstāda režģa rindu un kolonu skaitu
-    rows, cols = (100, 80)
+    rows, cols = (GRID_SIZE_Y, GRID_SIZE_X)
 
     # ģenerē režģa punktus
     # grid_points_X/Y ir 1D saraksti ar attiecīgās koord. ass vērtībām
@@ -252,41 +252,50 @@ def main(INPUT_FILE, ALPHA, OUTPUT_PATH, VERBOSE_MODE, VISUALIZE):
     verbose_print(f"Ģenerēts grafs ar {len(graph.nodes)} virsotnēm.")
     
     # Uzstāda sākuma un mērķa punkuts (koordinātes)
-    start_X, start_Y = (300, 300)
-    goal_X, goal_Y = (1200, 1200)
+    start_prim = min(graph.nodes, key=lambda graph_point: np.sum(np.abs( np.array(graph_point) - np.array(START) )))
+    goal_prim = min(graph.nodes, key=lambda graph_point: np.sum(np.abs( np.array(graph_point) - np.array(GOAL) )))
+    start_X, start_Y = start_prim
+    goal_X, goal_Y = goal_prim
 
-    # Nav garantēts, ka tieši tādi punkti ir grafā, tāpēc atrod tuvākos:
-    start_X = min(grid_points_X, key=lambda x: abs(x - start_X))
-    goal_X = min(grid_points_X, key=lambda x: abs(x - goal_X))
-    start_Y = min(grid_points_Y, key=lambda y: abs(y - start_Y))
-    goal_Y = min(grid_points_Y, key=lambda y: abs(y - goal_Y))
+    if tuple(START) != start_prim:
+        print(f"Sākuma punkts pārbītīdts no {START} uz {(start_X, start_Y)}")
+
+    if  tuple(GOAL) != goal_prim:
+        print(f"Mērķa punkts pārbītīdts no {GOAL} uz {(goal_X, goal_Y)}")
 
     A_star_path, all_visited_nodes = A_star(graph, start=(start_X, start_Y), goal=(goal_X, goal_Y))
-    verbose_print(f"Ceļš ar {len(A_star_path)} virsotnēm atrasts.")
+    if A_star_path == None:
+        verbose_print(f"Ceļš no {START} uz {GOAL} netika atrasts")
+        return
+    verbose_print(f"Ceļš no {START} uz {GOAL} ar {len(A_star_path)} virsotnēm atrasts.")
+    verbose_print(A_star_path)
+
+    if OUTPUT_PATH:
+        filename, ext = os.path.splitext(INPUT_FILE)
+        filename = filename.split(os.sep)[-1]
+        path_filename = f"{filename}_path_{str(start_prim)}_{str(goal_prim)}.txt"
+        np.savetxt(path_filename, A_star_path, fmt="%d")
+
 
     if VISUALIZE:
         # Vizualizē režģi, daudzstūrus, ceļu un apmeklētās virsotnes
         visualize_path_n_visited_nodes(A_star_path, all_visited_nodes, colors, grid_points_X, grid_points_Y, grid_X, grid_Y)
         plot_polygon(all_vertices)
-    
+        plt.title(f"Ceļš no {tuple(start_prim)} uz {tuple(goal_prim)}")
         plt.gca().invert_yaxis()
         aspect_ratio = X_pixels / Y_pixels
         plt.gca().set_aspect(aspect_ratio)
         plt.show()
-
-    #TODO
-    # Sīkumi:
-    #   verbose_print
-    #   komandrindas parametri
-    #   ceļa saglabāšana failā (punktu (pikseļu koord.) secība)
-    #   clean up
-    # pievienot armugenu start point, end point, un grid size
 
 if __name__ == "__main__":
     # Komandrindas argumentu apstrāde
     parser = argparse.ArgumentParser(description="Diskrēta ceļa plānošana, izmantojot A* algortimu")
 
     parser.add_argument("--input", "-i", help="Ceļš uz ieejas failu - attēlu", type=str)
+    parser.add_argument("--start", "-s", help="Sākuma punkts (x,y)", nargs="+", type=int)
+    parser.add_argument("--goal", "-g", help="Mērķa punkts (x,y)", nargs="+", type=int)
+    parser.add_argument("--grid_cols", help="Režģa kolonu skaits.", type=int, default=50)
+    parser.add_argument("--grid_rows", help="Režģa ridnu skaits.", type=int, default=50)
     parser.add_argument("--alpha", "-a", help="Daudzstūru aproksimācijas precizitāte (zemāka -> precīzāk).", default=0.01, type=float)
     parser.add_argument("--output", "-o", help="Izejas ceļa atrašanās vieta.", type=str)
     parser.add_argument("--verbose", "-v", action="store_true", help="Rādīt pilnu programmas izvadi.")
@@ -298,10 +307,17 @@ if __name__ == "__main__":
     OUTPUT_PATH = args.output
     VERBOSE_MODE = args.verbose
     VISUALIZE = args.draw
+    START = args.start
+    GOAL = args.goal
+    GRID_SIZE_X = args.grid_cols
+    GRID_SIZE_Y = args.grid_rows
+
 
     if INPUT_FILE == None:
         raise Exception("Norādi ieejas failu!")
-    
+    if START==None or GOAL==None:
+        raise Exception("Norādi sākuma un mērķa punktu!")
+
     if not VISUALIZE and not OUTPUT_PATH:
         VISUALIZE = True
 
@@ -314,4 +330,4 @@ if __name__ == "__main__":
     if OUTPUT_PATH and not os.path.exists(OUTPUT_PATH):
         raise Exception(f"Izejas mape \"{OUTPUT_PATH}\" netika atrasta.")
     
-    main(INPUT_FILE, ALPHA, OUTPUT_PATH, VERBOSE_MODE, VISUALIZE)
+    main(INPUT_FILE, ALPHA, OUTPUT_PATH, VERBOSE_MODE, VISUALIZE, START, GOAL, GRID_SIZE_X, GRID_SIZE_Y)
