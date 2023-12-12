@@ -252,15 +252,17 @@ def main(INPUT_FILE, ALPHA, OUTPUT_PATH, VERBOSE_MODE, VISUALIZE, START, GOAL, G
     verbose_print(f"Ģenerēts grafs ar {len(graph.nodes)} virsotnēm.")
     
     # Uzstāda sākuma un mērķa punkuts (koordinātes)
-    start_prim = min(graph.nodes, key=lambda graph_point: np.sum(np.abs( np.array(graph_point) - np.array(START) )))
-    goal_prim = min(graph.nodes, key=lambda graph_point: np.sum(np.abs( np.array(graph_point) - np.array(GOAL) )))
+    START = tuple(START)
+    GOAL = tuple(GOAL)
+    start_prim = tuple(int(coord) for coord in min(graph.nodes, key=lambda graph_point: np.sum(np.abs( np.array(graph_point) - np.array(START) ))))
+    goal_prim = tuple(int(coord) for coord in min(graph.nodes, key=lambda graph_point: np.sum(np.abs( np.array(graph_point) - np.array(GOAL) ))))
     start_X, start_Y = start_prim
     goal_X, goal_Y = goal_prim
 
-    if tuple(START) != start_prim:
+    if START != start_prim:
         print(f"Sākuma punkts pārbītīdts no {START} uz {(start_X, start_Y)}")
 
-    if  tuple(GOAL) != goal_prim:
+    if  GOAL != goal_prim:
         print(f"Mērķa punkts pārbītīdts no {GOAL} uz {(goal_X, goal_Y)}")
 
     A_star_path, all_visited_nodes = A_star(graph, start=(start_X, start_Y), goal=(goal_X, goal_Y))
