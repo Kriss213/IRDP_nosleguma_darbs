@@ -5,6 +5,7 @@ from matplotlib import pyplot as plt
 import os
 import argparse
 from contour_estimator import main as process_image
+import networkx as nx
 
 def is_part_of_shape(point, shape):
     x, y = point
@@ -101,12 +102,127 @@ def plot_polygon(vertices_2D, ax=plt):
 
             ax.plot([x_1, x_2], [y_1, y_2], color="black")
 
+def generate_grid_graph(grid_points_X, grid_points_Y, classification):
+    step_X = grid_points_X[1]
+    step_Y = grid_points_Y[1]
+
+    # Inicializē tukšu grafu
+    graph = nx.Graph()
+
+    # Pievieno grafa virsotnes
+    for col, x in enumerate(grid_points_X):
+        for row, y in enumerate(grid_points_Y):
+            node_id = (x,y)
+            if classification[row][col] == 2:
+                graph.add_node(node_id, pos=node_id)
+    
+    # Pievieno grafa lokus
+    for col, x in enumerate(grid_points_X):
+        for row, y in enumerate(grid_points_Y):
+            if classification[row][col] != 2:
+                continue
+            if (x + step_X, y) in graph.nodes:
+                graph.add_edge((x, y), (x + step_X, y))
+            if (x, y + step_Y) in graph.nodes:
+                graph.add_edge((x, y), (x, y + step_Y))
+
+    return graph
+
+def draw_graph(graph):
+    pos = nx.get_node_attributes(graph,"pos")
+    nx.draw_networkx(graph, pos, with_labels=False, node_size=2)
+    plt.gca().invert_yaxis()
+    plt.show()
+
+# Ceļa konstruēšanas metode
+def reconstruct_path(cameFrom, current):
+    total_path = [current]
+
+    while current in cameFrom.keys():
+        current = cameFrom[current]
+        total_path.insert(0, current)
+    return total_path
+
+# Definē A* algoritmu
+def A_star(graph, start, goal):
+    # Heiristiskas funkcija - tiešais attālums
+    def h(n):
+        goal_x, goal_y = graph.nodes(data=True)[goal]["pos"]
+        cur_x, cur_y = graph.nodes(data=True)[n]["pos"]
+        return np.sqrt( (goal_x-cur_x)**2 + (goal_y-cur_y)**2 )
+    def get_dist(node1, node2):
+        x1, y1 = node1
+        x2, y2 = node2
+        return np.sqrt( (x2-x1)**2 + (y2-y1)**2 )
+
+    open = [start]
+    cameFrom = {}
+
+    # saraksts, kur glabā apskatītās virsotnes
+    visited_nodes = []
+
+    f_score = {}
+    g_score = {}
+    for node in graph.nodes:
+        f_score[node] = float("inf")
+        g_score[node] = float("inf")
+    
+    g_score[start] = 0
+    f_score[start] = h(start)
+
+    while len(open) != 0:
+        current = min(open, key=lambda x, f_score=f_score: f_score[x] )
+        visited_nodes.append(current)
+
+        if current == goal:
+            return reconstruct_path(cameFrom, current), visited_nodes
+        
+        open.remove(current)
+
+        for neighbor in list(graph.neighbors(current)):
+            dist = get_dist(current, neighbor)#graph[current][neighbor]["length"]
+            tentative_g_score = g_score[current] + dist
+
+            if tentative_g_score < g_score[neighbor]:
+                cameFrom[neighbor] = current
+                g_score[neighbor] = tentative_g_score
+                f_score[neighbor] = tentative_g_score + h(neighbor)
+
+                if neighbor not in open:
+                    open.append(neighbor)
+    
+    return None
+
+def visualize_path_n_visited_nodes(path, visited_nodes, colors, grid_points_X, grid_points_Y, gridX, gridY, ax=plt):
+    start = path[0]
+    goal = path[-1]
+
+    for col, x in enumerate(grid_points_X):
+        for row, y in enumerate(grid_points_Y):
+            point = (x, y)
+            if point in path:
+                colors[row][col] = (0,1,0) # ceļa punktus iekrāso zaļus
+            elif point in visited_nodes:
+                colors[row][col] = (0.5, 0, 0.5) # apmeklētās virsotnes - violetas
+    
+    # Iezīmē sākuma un mērķa punktus
+    plot_grid(gridX, gridY, colors)
+    ax.scatter([ start[0], goal[0]], [start[1], goal[1]], color="dodgerblue", s=20)
+    ax.annotate("Starts", start, color="navy", fontsize=14)
+    ax.annotate("Mērķis", goal, color="navy", fontsize=14)
+
+
 
 def main(INPUT_FILE, ALPHA, OUTPUT_PATH, VERBOSE_MODE, VISUALIZE):
+    def verbose_print(message):
+        if VERBOSE_MODE:
+            print(message)
+
     # Izsauc contour_estimator.py
     poly_functions, X_pixels, Y_pixels = process_image(INPUT_FILE, ALPHA, OUTPUT_PATH=None, VERBOSE_MODE=False, VISUALIZE=False, OVERWRITE_JSON=False, INTERNAL_CALL=True)
+    verbose_print(f"Daudzstūra funkcijas iegūtas.")
     all_vertices, outer_poly_index = get_vertices_2D(poly_functions)
-
+    verbose_print("Daudzstūru stūra punkti noteikti.")
     # uzstāda režģa rindu un kolonu skaitu
     rows, cols = (100, 80)
 
@@ -114,6 +230,7 @@ def main(INPUT_FILE, ALPHA, OUTPUT_PATH, VERBOSE_MODE, VISUALIZE):
     # grid_points_X/Y ir 1D saraksti ar attiecīgās koord. ass vērtībām
     # grid_X/Y ir visa režģa punktu koordinātas
     grid_X, grid_Y, grid_points_X, grid_points_Y = generate_grid(X_pixels, Y_pixels, rows, cols)
+    verbose_print(f"Ģenerēts režģis ar izmēru {rows}x{cols}")
 
     # iegūst režģa šūnu krāsas atkarībā no klasifikācijas
     # Klasifikācija katram punktam
@@ -122,34 +239,48 @@ def main(INPUT_FILE, ALPHA, OUTPUT_PATH, VERBOSE_MODE, VISUALIZE):
     # 1 - šķērsļī
     # 2 - brīvs
     colors, classification = get_grid_colors(grid_X, grid_Y, all_vertices, outer_poly_index)
+    verbose_print("Režģa punkti klasifcēti")
 
     # Piemērs, kā iegūt klasifikāciju kādam no režģa punktiem
-    rdm_x_idx = np.random.randint(0, len(grid_points_X))
-    rdm_y_idx = np.random.randint(0, len(grid_points_Y))
-    flag = classification[rdm_y_idx][rdm_x_idx]
-    print(f"Point ({grid_points_X[rdm_x_idx]}, {grid_points_Y[rdm_y_idx]}) chosen and it has a flag of: {flag}")
+    # rdm_x_idx = np.random.randint(0, len(grid_points_X))
+    # rdm_y_idx = np.random.randint(0, len(grid_points_Y))
+    # flag = classification[rdm_y_idx][rdm_x_idx]
+    # print(f"Point ({grid_points_X[rdm_x_idx]}, {grid_points_Y[rdm_y_idx]}) chosen and it has a flag of: {flag}")
     
+    # Izveido grafu
+    graph = generate_grid_graph(grid_points_X, grid_points_Y, classification)
+    verbose_print(f"Ģenerēts grafs ar {len(graph.nodes)} virsotnēm.")
+    
+    # Uzstāda sākuma un mērķa punkuts (koordinātes)
+    start_X, start_Y = (300, 300)
+    goal_X, goal_Y = (1200, 1200)
+
+    # Nav garantēts, ka tieši tādi punkti ir grafā, tāpēc atrod tuvākos:
+    start_X = min(grid_points_X, key=lambda x: abs(x - start_X))
+    goal_X = min(grid_points_X, key=lambda x: abs(x - goal_X))
+    start_Y = min(grid_points_Y, key=lambda y: abs(y - start_Y))
+    goal_Y = min(grid_points_Y, key=lambda y: abs(y - goal_Y))
+
+    A_star_path, all_visited_nodes = A_star(graph, start=(start_X, start_Y), goal=(goal_X, goal_Y))
+    verbose_print(f"Ceļš ar {len(A_star_path)} virsotnēm atrasts.")
 
     if VISUALIZE:
-        # vizualizē režģi un daudzstūrus
-        plot_grid(grid_X, grid_Y, colors)
+        # Vizualizē režģi, daudzstūrus, ceļu un apmeklētās virsotnes
+        visualize_path_n_visited_nodes(A_star_path, all_visited_nodes, colors, grid_points_X, grid_points_Y, grid_X, grid_Y)
         plot_polygon(all_vertices)
-
+    
         plt.gca().invert_yaxis()
         aspect_ratio = X_pixels / Y_pixels
         plt.gca().set_aspect(aspect_ratio)
         plt.show()
 
     #TODO
-    # izveidot grafu no grid_points_X, grid_points_Y (moš var for loopā pa taisno pievienot arī edges idk)
-    # grafu (un networkX) vajag, lai viegli varētu dabūt kaimiņus
-    # Implementēt A*
-    # Vizualizēt ne tika gala ceļu, bet arī visus apskatītos ceļus
     # Sīkumi:
     #   verbose_print
     #   komandrindas parametri
     #   ceļa saglabāšana failā (punktu (pikseļu koord.) secība)
     #   clean up
+    # pievienot armugenu start point, end point, un grid size
 
 if __name__ == "__main__":
     # Komandrindas argumentu apstrāde
