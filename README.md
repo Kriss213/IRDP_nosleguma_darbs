@@ -26,7 +26,7 @@ Argumenti:
 
 Darbināt ar
 ```
-python discrete_planner.py --input --start X Y --goal X Y
+python discrete_planner.py --input --algorithm A* --start X Y --goal X Y
 ```
 Argumenti:
 

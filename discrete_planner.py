@@ -239,7 +239,8 @@ def visualize_path_n_visited_nodes(path, visited_nodes, colors, grid_points_X, g
         col = grid_points_X_list.index(x)
         row = grid_points_Y_list.index(y)
         colors[row][col] = (0,1,0) # ceļa punktus iekrāso zaļus
-    grid_plot.remove()
+    if grid_plot:
+        grid_plot.remove()
     plot_grid(gridX, gridY, colors, ax=ax)
     
     if not animate:
