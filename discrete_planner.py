@@ -6,6 +6,8 @@ import os
 import argparse
 from contour_estimator import main as process_image
 import networkx as nx
+from shapely.geometry import LineString, Polygon
+from matplotlib.animation import PillowWriter
 
 def is_part_of_shape(point, shape):
     x, y = point
@@ -26,6 +28,16 @@ def is_part_of_shape(point, shape):
 
     return intersection_count % 2 != 0
 
+def crosses_polygon(line, polygon):
+    line = LineString(line)
+    polygon = Polygon(polygon)
+
+    # Pārbauda, vai līnija šķērso kādu šķērsli
+    if line.crosses(polygon):
+        return True
+
+    return False
+
 def round_up_to_multiplier(number, N):
     if N == 0:
         return number
@@ -43,9 +55,12 @@ def generate_grid(x_max, y_max, row_count, col_count):
     return X, Y, grid_points_x, grid_points_y
 
 def plot_grid(X, Y, colors, ax=plt, plot_center_points=False):
-    ax.figure(figsize=(8, 8))
-    ax.pcolormesh(X, Y, colors, shading='nearest', edgecolors="gray", alpha=0.5, linewidth=.2)
-    if plot_center_points: ax.scatter(X, Y, color="red", s=5)
+    #ax.figure(figsize=(8, 8))
+    color_mesh_plot = ax.pcolormesh(X, Y, colors, shading='nearest', edgecolors="gray", alpha=0.5, linewidth=.2)
+    if plot_center_points:
+        scat = ax.scatter(X, Y, color="red", s=5)
+        return color_mesh_plot, scat
+    return color_mesh_plot
 
 def get_grid_colors(gridX, gridY, vertices_2D, outer_contour_id):
     def check_point(X, Y):
@@ -95,12 +110,17 @@ def get_vertices_2D(poly_functions):
     return all_vertices, outer_poly_index
 
 def plot_polygon(vertices_2D, ax=plt):
+    lines_x = []
+    lines_y = []
     for polygon_vertices in vertices_2D:
         for i in range(len(polygon_vertices)):
             x_1, y_1 = polygon_vertices[i]
             x_2, y_2 = polygon_vertices[(i+1)%len(polygon_vertices)]
-
-            ax.plot([x_1, x_2], [y_1, y_2], color="black")
+            lines_x.append([x_1, x_2])
+            lines_y.append([y_1, y_2])
+        ax.plot(lines_x, lines_y, color="black")
+        lines_x.clear()
+        lines_y.clear()
 
 def generate_grid_graph(grid_points_X, grid_points_Y, classification):
     step_X = grid_points_X[1]
@@ -193,27 +213,155 @@ def A_star(graph, start, goal):
     
     return None
 
-def visualize_path_n_visited_nodes(path, visited_nodes, colors, grid_points_X, grid_points_Y, gridX, gridY, ax=plt):
-    start = path[0]
-    goal = path[-1]
+def visualize_path_n_visited_nodes(path, visited_nodes, colors, grid_points_X, grid_points_Y, gridX, gridY, animate=False, ax=plt, batch=25):
+    grid_plot = None
+    grid_points_X_list = list(grid_points_X)
+    grid_points_Y_list = list(grid_points_Y)
+    i = 0
+    for j, node in enumerate(visited_nodes):
+        i+= 1
+        try:
+            grid_plot.remove()
+        except:
+            pass
+        x, y = node
+        col = grid_points_X_list.index(x)
+        row = grid_points_Y_list.index(y)
 
-    for col, x in enumerate(grid_points_X):
-        for row, y in enumerate(grid_points_Y):
-            point = (x, y)
-            if point in path:
-                colors[row][col] = (0,1,0) # ceļa punktus iekrāso zaļus
-            elif point in visited_nodes:
-                colors[row][col] = (0.5, 0, 0.5) # apmeklētās virsotnes - violetas
+        colors[row][col] = (0.5, 0, 0.5) # apmeklētās virsotnes - violetas
+        if animate and (i==batch or j==len(visited_nodes)-1):
+            i=0
+            grid_plot = plot_grid(gridX, gridY, colors, ax=ax)
+            plt.pause(0.01)
+
+    for node in path:
+        x, y = node
+        col = grid_points_X_list.index(x)
+        row = grid_points_Y_list.index(y)
+        colors[row][col] = (0,1,0) # ceļa punktus iekrāso zaļus
+    grid_plot.remove()
+    plot_grid(gridX, gridY, colors, ax=ax)
     
-    # Iezīmē sākuma un mērķa punktus
-    plot_grid(gridX, gridY, colors)
-    ax.scatter([ start[0], goal[0]], [start[1], goal[1]], color="dodgerblue", s=20)
-    ax.annotate("Starts", start, color="navy", fontsize=14)
-    ax.annotate("Mērķis", goal, color="navy", fontsize=14)
+    if not animate:
+        plot_grid(gridX, gridY, colors)
 
+# Atrod tuvāko grafa virsotni
+def find_closest_vertex(all_vertices_1d, point, return_dist=False):
+    distances = np.linalg.norm(np.array(all_vertices_1d) - np.array(point), axis=1)
+    closest_vertex_index = np.argmin(distances)
+    closest_vertex = all_vertices_1d[closest_vertex_index]
+    if return_dist:
+        distance = distances[closest_vertex_index]
+        return closest_vertex, distance
+    return closest_vertex
 
+def generate_RRT_set(length, xlim, ylim, p_target_dir, seed=None):
+    if seed != None:
+        rng = np.random.default_rng(seed)
+        points_x = rng.integers(low=0, high=xlim, size=(length, 1))
+        points_y = rng.integers(low=0, high=ylim, size=(length, 1))
+        probabilities = rng.random((length, 1))
+    
+    else:
+        points_x = np.random.randint(0, xlim, size=(length, 1), dtype=int )
+        points_y = np.random.randint(0, ylim, size=(length, 1), dtype=int )
+        probabilities = np.random.rand(length, 1)
+        
+    # binārs masīvs, kas nosaka, vai jāvirzās mērķa virzienā (1) vai punkta virzienā (0)
+    direction_target = (probabilities > (1-p_target_dir)).astype(int)
 
-def main(INPUT_FILE, ALPHA, OUTPUT_PATH, VERBOSE_MODE, VISUALIZE, START, GOAL, GRID_SIZE_X, GRID_SIZE_Y):
+    return np.hstack( (points_x, points_y, direction_target))
+
+def distance(point1, point2):
+    return np.sqrt( (point2[0] - point1[0])**2 + (point2[1] - point1[1])**2 )
+
+# Definē RRT algoritmu
+def RRT(start, goal, polygons2D, outer_poly_index, xlim, ylim, L=20, R=10, random_point_count=100, seed=None):
+    # Ģenerē punktu kopu, kā arī varbūtību, ar kādu dodas mērķa virzienā
+    # un ar kādu dodas n-tā punkta virzienā. Nosaka soļa garumu L
+    # Nosaka rādisu R ap mērķa punktu, kas, ja tiek sasniegts, tiek uzkatīts,
+    # ka sasniegts mērķis.
+
+    graph_RRT = nx.Graph()
+    # Pievieno sākuma un mērķa virsotnes
+    graph_RRT.add_node( start, pos=start, label="start" )
+    graph_RRT.add_node( goal, pos=goal, label="goal" )
+
+    random_points = generate_RRT_set(length=random_point_count, xlim=xlim, ylim=ylim, p_target_dir=0.3, seed=seed)
+    x_g, y_g = goal
+    origin = None
+
+    # iegūst sarakstu ar visām grafa virsotnēm izņemot mērķa virsotni
+    all_nodes_except_goal = [start]
+
+    # Iteratīvi caur random_points
+    for row in random_points:
+        point = row[0:2]
+        direction = row[2]
+
+        new_point = None
+        origin = find_closest_vertex(all_nodes_except_goal, point)
+        x_o, y_o = origin
+        # Virzās mērķa virzienā
+        if direction == 1:
+            # Aprēķina jaunā punkta koordinātes
+            theta = np.arctan2(y_g - y_o, x_g - x_o)
+            x_new = x_o + L * np.cos(theta)
+            y_new = y_o + L * np.sin(theta)
+            new_point = (x_new, y_new)
+        
+        # Virzās nejaušā virzienā
+        elif direction == 0:
+            x_t, y_t = point
+            theta = np.arctan2(y_t - y_o, x_t - x_o)
+            x_new = x_o + L * np.cos(theta)
+            y_new = y_o + L * np.sin(theta)
+            new_point = (x_new, y_new)
+
+        in_obstacle = False
+        # Pārbauda, vai jaunais punkts nepieder kādam šķērslim
+        for j, polygon in enumerate(polygons2D):
+            if j != outer_poly_index:
+                if crosses_polygon([origin, new_point], polygon):
+                    in_obstacle = True
+                    break
+            else:
+                if not is_part_of_shape(new_point, polygon):
+                    in_obstacle = True
+                    break
+        if in_obstacle:
+            continue
+
+        graph_RRT.add_node(new_point, pos=new_point)
+        graph_RRT.add_edge(origin, new_point)
+        all_nodes_except_goal.append(new_point)
+        found_goal = False
+        if distance(goal, new_point) < R:
+            found_goal = True
+            graph_RRT.nodes[new_point]["label"] = "in_R_of_goal"
+            break
+    
+    return graph_RRT, found_goal
+
+def draw_RRT(edge_list, ax=plt, animate=False, batch=10):
+    iter_nr = 0
+    for i, edge in enumerate(edge_list):
+        iter_nr += 1
+        p1 = edge[0]
+        p2 = edge[1]
+
+        #uzzīmē līniju
+        line_x = [p1[0], p2[0]]
+        line_y = [p1[1], p2[1]]
+        ax.plot(line_x, line_y, color="black", linewidth=1)
+        ax.scatter(*p1, color="black", s=20)
+        ax.scatter(*p2, color="black", s=20)
+        
+        if animate and (iter_nr == batch or i ==len(edge_list)-1 ):
+            iter_nr = 0
+            plt.pause(0.001)
+          
+def main(INPUT_FILE, ALGORITHM, ALPHA, VERBOSE_MODE, VISUALIZE, START, GOAL, GRID_SIZE_X, GRID_SIZE_Y, ANIMATE, SEED):
     def verbose_print(message):
         if VERBOSE_MODE:
             print(message)
@@ -240,12 +388,6 @@ def main(INPUT_FILE, ALPHA, OUTPUT_PATH, VERBOSE_MODE, VISUALIZE, START, GOAL, G
     # 2 - brīvs
     colors, classification = get_grid_colors(grid_X, grid_Y, all_vertices, outer_poly_index)
     verbose_print("Režģa punkti klasifcēti")
-
-    # Piemērs, kā iegūt klasifikāciju kādam no režģa punktiem
-    # rdm_x_idx = np.random.randint(0, len(grid_points_X))
-    # rdm_y_idx = np.random.randint(0, len(grid_points_Y))
-    # flag = classification[rdm_y_idx][rdm_x_idx]
-    # print(f"Point ({grid_points_X[rdm_x_idx]}, {grid_points_Y[rdm_y_idx]}) chosen and it has a flag of: {flag}")
     
     # Izveido grafu
     graph = generate_grid_graph(grid_points_X, grid_points_Y, classification)
@@ -265,28 +407,58 @@ def main(INPUT_FILE, ALPHA, OUTPUT_PATH, VERBOSE_MODE, VISUALIZE, START, GOAL, G
     if  GOAL != goal_prim:
         print(f"Mērķa punkts pārbītīdts no {GOAL} uz {(goal_X, goal_Y)}")
 
-    A_star_path, all_visited_nodes = A_star(graph, start=(start_X, start_Y), goal=(goal_X, goal_Y))
-    if A_star_path == None:
-        verbose_print(f"Ceļš no {START} uz {GOAL} netika atrasts")
-        return
-    verbose_print(f"Ceļš no {START} uz {GOAL} ar {len(A_star_path)} virsotnēm atrasts.")
-    verbose_print(A_star_path)
+    if ALGORITHM == "A*":
+        A_star_path, all_visited_nodes = A_star(graph, start=(start_X, start_Y), goal=(goal_X, goal_Y))
+        if A_star_path == None:
+            verbose_print(f"Ceļš no {START} uz {GOAL} netika atrasts")
+            return
+        verbose_print(f"Ceļš no {START} uz {GOAL} ar {len(A_star_path)} virsotnēm atrasts.")
 
-    if OUTPUT_PATH:
-        filename, ext = os.path.splitext(INPUT_FILE)
-        filename = filename.split(os.sep)[-1]
-        path_filename = f"{filename}_path_{str(start_prim)}_{str(goal_prim)}.txt"
-        np.savetxt(path_filename, A_star_path, fmt="%d")
-
+    elif ALGORITHM == "RRT":
+        RRT_graph, found_goal = RRT(
+            start=(start_X, start_Y),
+            goal=(goal_X, goal_Y),
+            polygons2D=all_vertices,
+            outer_poly_index=outer_poly_index,
+            xlim=X_pixels,
+            ylim=Y_pixels,
+            L=100, R=50, random_point_count=500, 
+            seed = SEED)
+        if found_goal:
+            verbose_print(f"RRT atrada mērķi ar {len(list(RRT_graph.nodes))-2} iterācijām")
 
     if VISUALIZE:
         # Vizualizē režģi, daudzstūrus, ceļu un apmeklētās virsotnes
-        visualize_path_n_visited_nodes(A_star_path, all_visited_nodes, colors, grid_points_X, grid_points_Y, grid_X, grid_Y)
+        fig, ax = plt.subplots(figsize=(10,10))
+        plot_grid(grid_X, grid_Y, colors)
         plot_polygon(all_vertices)
-        plt.title(f"Ceļš no {tuple(start_prim)} uz {tuple(goal_prim)}")
-        plt.gca().invert_yaxis()
+        ax.scatter([ start_prim[0], goal_prim[0]], [start_prim[1], goal_prim[1]], color="dodgerblue", s=30)
+        ax.annotate("Starts", start_prim, color="red", fontsize=14)
+        ax.annotate("Mērķis", goal_prim, color="red", fontsize=14)
+        ax.set_title(f"Ceļš no {tuple(start_prim)} uz {tuple(goal_prim)}")
+        ax.invert_yaxis()
         aspect_ratio = X_pixels / Y_pixels
-        plt.gca().set_aspect(aspect_ratio)
+        ax.set_aspect(aspect_ratio)
+
+        if ALGORITHM == "A*":
+            visualize_path_n_visited_nodes(A_star_path, all_visited_nodes, colors, grid_points_X, grid_points_Y, grid_X, grid_Y, animate=ANIMATE, ax=ax)
+        elif ALGORITHM == "RRT":
+            rrt_edge_list = list(RRT_graph.edges)
+            node_in_R_of_goal = list(RRT_graph.nodes)[-1]
+            draw_RRT(rrt_edge_list, animate=ANIMATE, ax=ax, batch=10)
+
+            if found_goal:
+                # Atrod īsāko ceļu grafā
+                RRT_shorthest_path, _ = A_star(RRT_graph, start_prim, node_in_R_of_goal)
+                lines_x = []
+                lines_y = []
+                for i in range(len(RRT_shorthest_path)-1):
+                    p1 = RRT_shorthest_path[i]
+                    p2 = RRT_shorthest_path[i+1]
+                    lines_x.append([p1[0], p2[0]])
+                    lines_y.append([p1[1], p2[1]])
+                plt.plot(lines_x, lines_y, color="red", linewidth=1.5)
+                   
         plt.show()
 
 if __name__ == "__main__":
@@ -296,40 +468,45 @@ if __name__ == "__main__":
     parser.add_argument("--input", "-i", help="Ceļš uz ieejas failu - attēlu", type=str)
     parser.add_argument("--start", "-s", help="Sākuma punkts (x,y)", nargs="+", type=int)
     parser.add_argument("--goal", "-g", help="Mērķa punkts (x,y)", nargs="+", type=int)
+    parser.add_argument("--algorithm", help="Algoritma izvēle (RRT vai A*)", type=str)
+    parser.add_argument("--seed", help="RRT algoritmam iegūst atkārtojamus rezultātus", type=int)
+    parser.add_argument("--animate", help="Animēt rezultātu", action="store_true")
     parser.add_argument("--grid_cols", help="Režģa kolonu skaits.", type=int, default=50)
     parser.add_argument("--grid_rows", help="Režģa ridnu skaits.", type=int, default=50)
     parser.add_argument("--alpha", "-a", help="Daudzstūru aproksimācijas precizitāte (zemāka -> precīzāk).", default=0.01, type=float)
-    parser.add_argument("--output", "-o", help="Izejas ceļa atrašanās vieta.", type=str)
     parser.add_argument("--verbose", "-v", action="store_true", help="Rādīt pilnu programmas izvadi.")
     parser.add_argument("--draw", "-d", action="store_true", help="Vizualizēt rezultātu.")
     args = parser.parse_args()
 
     INPUT_FILE = args.input
+    ALGORITHM = args.algorithm
     ALPHA = args.alpha
-    OUTPUT_PATH = args.output
+    SEED = args.seed
     VERBOSE_MODE = args.verbose
     VISUALIZE = args.draw
     START = args.start
     GOAL = args.goal
     GRID_SIZE_X = args.grid_cols
     GRID_SIZE_Y = args.grid_rows
+    ANIMATE = args.animate
 
 
     if INPUT_FILE == None:
         raise Exception("Norādi ieejas failu!")
+
+    if ALGORITHM == None or (ALGORITHM != "A*" and ALGORITHM != "RRT"):
+        raise Exception("Nederīga algoritma izvēle. Izvēlies RRT vai A*")
+
     if START==None or GOAL==None:
         raise Exception("Norādi sākuma un mērķa punktu!")
 
-    if not VISUALIZE and not OUTPUT_PATH:
-        VISUALIZE = True
+    if not VISUALIZE and ANIMATE:
+         VISUALIZE = True
 
     if not os.path.exists(INPUT_FILE):
         raise Exception(f"Fails \"{INPUT_FILE}\" netika atrasts!")
     
     if ALPHA <= 0:
         raise Exception(f"Vērtībai alpha jābūt lielākai par 0. Tika ievadīts {ALPHA}")
-
-    if OUTPUT_PATH and not os.path.exists(OUTPUT_PATH):
-        raise Exception(f"Izejas mape \"{OUTPUT_PATH}\" netika atrasta.")
     
-    main(INPUT_FILE, ALPHA, OUTPUT_PATH, VERBOSE_MODE, VISUALIZE, START, GOAL, GRID_SIZE_X, GRID_SIZE_Y)
+    main(INPUT_FILE, ALGORITHM, ALPHA, VERBOSE_MODE, VISUALIZE, START, GOAL, GRID_SIZE_X, GRID_SIZE_Y, ANIMATE, SEED)
