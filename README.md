@@ -50,7 +50,7 @@ Argumenti:
 
 ```--verbose```, ```-v``` - izvadīt papildus informāciju.
 
-```--draw```, ```-d``` - vizualizēt rezultātu (automātiski, ja nav norādīts ```output```);
+```--draw```, ```-d``` - vizualizēt rezultātu (automātiski, ja norādīts ```animate```);
 
 
 | A* algoritma piemērs              | RRT algoritma piemērs |

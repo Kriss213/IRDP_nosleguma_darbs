@@ -1,5 +1,4 @@
 # Importē nepieciešamās bibliotēkas
-import cv2
 import numpy as np
 from matplotlib import pyplot as plt
 import os
@@ -7,7 +6,7 @@ import argparse
 from contour_estimator import main as process_image
 import networkx as nx
 from shapely.geometry import LineString, Polygon
-from matplotlib.animation import PillowWriter
+
 
 def is_part_of_shape(point, shape):
     x, y = point
