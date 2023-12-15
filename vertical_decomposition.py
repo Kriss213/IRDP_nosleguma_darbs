@@ -1,15 +1,13 @@
-import cv2
 import numpy as np
 from matplotlib import pyplot as plt
 import matplotlib.colors as mcolors
 import os
 import argparse
 from contour_estimator import main as process_image
-from discrete_planner import get_vertices_2D, plot_polygon, is_part_of_shape
+from discrete_planner import get_vertices_2D, plot_polygon, is_part_of_shape, A_star
 from itertools import chain
 import networkx as nx
 import ast
-from collections import Counter
 
 def find_closest_point_on_edge(all_vertices, point, same_x=False, return_edge_points=False):
     # Atrod punktu uz īsākās tuvākās malas
@@ -82,23 +80,6 @@ def find_closest_vertex(all_vertices_1d, point, return_dist=False):
         return closest_vertex, distance
     return closest_vertex
 
-def get_all_edges(vertices, two_dim=False):
-    edges = []
-    
-    for i in range(len(vertices)):
-        if two_dim:
-            for shape_vertices in vertices[i]:
-                p1 = shape_vertices[i]
-                p2 = shape_vertices[ (i+1) % len(shape_vertices)]
-                edge = [p1, p2]
-                edges.append(edge)
-        else:
-            p1 = vertices[i]
-            p2 = vertices[ (i+1) % len(vertices)]
-            edge = [p1, p2]
-            edges.append(edge)
-    return edges
-
 def get_point_str(point, twoD=False):
     if twoD:
         res = "["
@@ -123,8 +104,6 @@ def get_side_edge(cell, right=True):
         p2 = cells_sorted_by_x[-2]
         if p1[0] != p2[0]:
             # nav taisnas labās malas
-            print("Neatrada taisnu labo malu. Šūna")
-            print(cells_sorted_by_x)
             return None
     else:
         # Atrod kreiso malu
@@ -132,185 +111,263 @@ def get_side_edge(cell, right=True):
         p2 = cells_sorted_by_x[1]
         if p1[0] != p2[0]:
             # nav taisnas kreisās malas
-            print("Neatrada taisnu kreiso malu. Šūna")
-            print(cells_sorted_by_x)
             return None
     return [p1, p2]  
-
-def get_side_cell(edge, all_cells, right=True):
-    for cell in all_cells:
-        side_edge = get_side_edge(cell, right=(not right) )
-        if side_edge == None:
-            continue
-        
-        # Mala var būt daļa no malas vai visa mala
-        # Visa mala
-        cond1 = (edge == side_edge or edge == reversed(side_edge))
-        # Daļa no malas
-        cond2 = (point_is_on_line(edge[0], side_edge) and point_is_on_line(edge[1], side_edge))
-        if cond1 or cond2:
-            return cell
     
-    e_str = f"Neatrada šūnu pa labi no {edge}" if right else f"Neatrada šūnu pa kreisi no {edge}"
-    raise Exception(e_str)
-
-def point_is_on_line(point, edge, eps=1e-8):
-    p1, p2 = edge
-    x1, y1 = p1
-    x2, y2 = p2
-    x, y = point
-
-    if x < min(x1, x2) or x > max(x1, x2) or y < min(y1, y2) or y > max(y1, y2):
-        return False
-    if (x2-x1) == 0:
-        if x >= x1-eps and x <= x1+eps:
-            return True
-    else:
-        k = (y2-y1) / (x2-x1)
-        b = y1 - k*x1
-        y_prim = k*x* + b
-
-        if y_prim >= y-eps and y_prim <= y+eps:
-            return True
-    return False
-    
-def get_1D_cells(cells): # jeb kopīgās malas starp 2D šūnām
+def get_1D_cells(cells_2D): # jeb kopīgās malas starp 2D šūnām
     # 2D saraksts ar 1D šūnām (daudzstūru vertikālajām malām)
-    # ERROR HERE
-    cells_1d = []
+    cells_1D = []
+    for cell in cells_2D:
+        vertical_sides = [get_side_edge(cell, right=False), get_side_edge(cell, right=True)]
+        for side in vertical_sides:
+            if side == None:
+                continue
+            cells_1D.append(side)
+    return cells_1D
 
-    for cell in cells:
-        edge = get_side_edge(cell, right=True)
-        if edge == None:
-            edge = get_side_edge(cell, right=False)
-        if edge not in cells_1d:
-            cells_1d.append(edge)
+def get_centroid(polygon):
+    polygon = np.array(polygon)
+    n = len(polygon)
+    x_sum = np.sum(polygon[:, 0])
+    y_sum = np.sum(polygon[:, 1])
+    Cx = x_sum / n
+    Cy = y_sum / n
+    return (Cx, Cy)
 
-    print("Returning None from get_1D_cells")
-    return cells_1d
+def distance(point1, point2):
+    return np.sqrt( (point2[0] - point1[0])**2 + (point2[1] - point1[1])**2 )
+
+def vertical_line_contains_sub_lines(line, all_lines, eps=1e-8):#0.1):
+    # Pārbauda, vai vertikālai taisnei ir kāda taisne
+    # sarakstā all_lines, kas pārklāj
+    # daļu no taisnes
+    Lx1, Ly1 = line[0]
+    Lx2, Ly2 = line[1]
+    
+    line = np.array(line)
+    for test_line in all_lines:
+        test_line = np.array(test_line)
+        if np.array_equal(line, test_line) or np.array_equal(line, test_line[::-1]):
+            continue
+        Tx1, Ty1 = test_line[0]
+        Tx2, Ty2 = test_line[1]
+        
+        if Tx1 >= Lx1-eps and Tx1 <= Lx1+eps:
+            if max(Ty1, Ty2)-eps <= max(Ly1, Ly2) and min(Ty1, Ty2)+eps >= min(Ly1, Ly2):
+                return True
+    return False
 
 def draw_loaded_cells(cells, ax=plt, fig=None, alpha=None):
-    all_1D_cells = get_1D_cells(cells)
-
     # Sakārto šūnas augošā secībā pēc vidējās X vērtības
+    
     cells_2D = sorted(cells, key=lambda cell: sum( x for x, y in cell) / len(cell))
-    cells_1D = sorted(all_1D_cells, key=lambda p: p[0] )
-
-    all_fills = []
+    cells_1D = get_1D_cells(cells_2D)
+   
+    centroids_2D = []
+    centroids_1D = []
+    graph = nx.Graph()
+    drawn = False
     for cell in cells_2D:
         cell = np.array(cell)
-                
-        # iekrāso kontūru
-        x_fill, y_fill = zip(*cell)
-        fill, = ax.fill(x_fill, y_fill, color="red", alpha=0.5)
-        all_fills.append(fill)
-        #all_fills = sorted(all_fills, key=lambda fill: sum( x for x, y in cell.get_xy()) / len(fill.get_xy()))
 
-        # novelk taisni
-        edge = get_side_edge(cell, right=True)
-        if edge == None:
-            edge = get_side_edge(cell, right=False)
-        ax.plot([edge[0][0], edge[1][0]], [edge[0][1], edge[1][1]], color="lawngreen")
+        # iegūst centroidu
+        centroid_2D = get_centroid(cell)
+        centroids_2D.append(centroid_2D)
+        # attēlo 2D centroīdu
+        ax.scatter(*centroid_2D, s=20, color="gold")
+        graph.add_node(centroid_2D, pos=centroid_2D)
 
-        # iezīmē virsotnes
-        ax.scatter(cell[:, 0], cell[:, 1], color="cyan", s=50)
+        # Iegūst šūnas vertikālās sānu malas:
+        vertical_sides = [get_side_edge(cell, right=False), get_side_edge(cell, right=True)]
+        for side in vertical_sides:
+            if side == None:
+                continue
+            # Zīmē vertikālās malas
+            ax.plot([side[0][0], side[1][0]], [side[0][1], side[1][1]], color="lawngreen")
+
+            # Iegūst centroīdus, balstoties uz to, vai vertikālās sānu malas ir sadalītas
+            if not vertical_line_contains_sub_lines(side, cells_1D):
+                line_centroid = get_centroid(side)
+                ax.scatter(*line_centroid, s=20, color="cornflowerblue")
+                graph.add_node(line_centroid, pos=line_centroid)
+                centroids_1D.append(line_centroid)
+               
+    eps=1e-8
+    for i in range(len(cells_2D)):
+        # cells_2D un centroids_2D ir vienāda garuma
+        cell = cells_2D[i]
+        centroid_2D = centroids_2D[i]
+        x_c_2d, y_c_2d = centroid_2D
+        for centroid_1D in centroids_1D:
+            x_c_1d, y_c_1d = centroid_1D
+            # Pieskaita vai atņem eps atkarībā no tā, kurā
+            # pusē 2D centrodam atrodas 1D centroids
+            x_c_1d_prim = x_c_1d + eps if x_c_2d > x_c_1d else x_c_1d - eps
+            # Iegūst jaunu 1D šūnas centroīdu, kas ir iebīdīts 2D šūnā
+            c_1d_prim = (x_c_1d_prim, y_c_1d)
+            if is_part_of_shape(c_1d_prim, cell):
+                # Pievieno grafu, ja iebīdītais punkts pieder kārtējai 2D šūnai
+                graph.add_edge(centroid_2D, centroid_1D, length=distance(centroid_1D, centroid_2D))
+
     title_str = f"Ceļa kartes izveide: α={alpha}" if alpha else f"Ceļa kartes izveide"
     ax.set_title(title_str, fontsize=14)
+    instructions_text ="""
+    ENTER - animēt grafa izveidi
+    """
+    info_plot = ax.text(0, 1.0, instructions_text, transform=ax.transAxes, verticalalignment='top', fontsize=10, color="orangered")
     
-    points_in_cells = []
-    points_on_lines = []
-
+    start = None
+    goal = None
+    start_scat = None
+    goal_scat = None
+    start_line_plot = None
+    goal_line_plot = None
+    closest_2D_centroid_start = None
+    closest_2D_centroid_goal = None
+    start_label = None
+    goal_label = None
+    path_plot = None
     def on_click(event):
-        nonlocal points_in_cells
-        nonlocal points_on_lines
-
+        nonlocal start, goal, start_scat, goal_scat
+        nonlocal start_line_plot, goal_line_plot
+        nonlocal closest_2D_centroid_start, closest_2D_centroid_goal
+        nonlocal start_label, goal_label, path_plot
+        if not drawn:
+            return
         if event.inaxes != None and (event.button == 1 or event.button == 3):
-            # LMB - pievieno punktu 2D šūnā
+            # LMB - iestata sākuma punktu
             if event.button == 1:
                 clicked_point = (event.xdata, event.ydata)
-                if len(points_in_cells) != 0:
-                    closest_vertex, distance = find_closest_vertex(points_in_cells, clicked_point, return_dist=True)
-                    #if distance < 5:
-                    #    clicked_point=closest_vertex
-
-                # Atlasīto šūnu iekrāso baltu
-                clicked_cell = None          
-                for fill in all_fills:
-                    polygon = fill.get_xy()
-                    if is_part_of_shape(clicked_point, polygon):
-                        fill.set_facecolor("white")
-                        clicked_cell = polygon
-                        
-                ax.scatter(*clicked_point, s=30, color="red")
                 
-
-                if len(points_on_lines) != 0:
-                    # Atrod punktu uz līnijas pa kreisi
-                    point_on_left_cell_line = None
-                    left_1D_cell = get_side_edge(clicked_cell, right=False)
-                    for point in points_on_lines:
-                        if point_is_on_line(point, left_1D_cell):
-                            point_on_left_cell_line = point
-                            print("Atrada punktu uz kreisās līnijas")
+                # Pārbauda, vai izvēlētais punkts pieder kādai 2D šūnai
+                point_valid = False
+                for i, cell in enumerate(cells_2D):
+                    if is_part_of_shape(clicked_point, cell):
+                        closest_2D_centroid_start = centroids_2D[i]
+                        point_valid = True
+                        break
+                if not point_valid:
+                    print("Izvēlies 2D šūnai piederīgu sākuma punktu")
+                    return
+                # Punkts ir derīgs
+                start = clicked_point
+                # Dzēš punktu, ja iepriekš jau bija izvēlēts
+                if start_scat and start_line_plot and start_label:
+                    start_line_plot.remove()
+                    start_scat.remove()
+                    start_label.remove()
+                    start_line_plot = None
+                    start_scat = None
+                    start_label = None
                     
-                    ax.plot(
-                        [point_on_left_cell_line[0], clicked_point[0]],
-                        [point_on_left_cell_line[1], clicked_point[1]],
-                        color="black")
-                if clicked_point not in points_in_cells:
-                    points_in_cells.append(clicked_point)
+                if path_plot:
+                    for pp in path_plot:
+                        pp.remove()
+                    path_plot = None
 
-
+                # atrod tuvāko 2D šunas centroīdu, kurai pievienot punktu
+                start_scat = ax.scatter(*start, s=30, color="red")
+                start_line_plot, = ax.plot([ closest_2D_centroid_start[0], start[0] ],
+                                          [ closest_2D_centroid_start[1], start[1] ],
+                                          color="dodgerblue", linewidth=1.5)
+                start_label = ax.annotate("Starts", start, color="red", fontsize=14)
+        
+                plt.draw()
+                
+            # RMB - iestata mērķa punktu
             elif event.button == 3:
                 clicked_point = (event.xdata, event.ydata)
-                closest_POE, ep1, ep2 = find_closest_point_on_edge(cells_1D, clicked_point, return_edge_points=True)
                 
-                ax.scatter(*closest_POE, s=50, color="gold")
-                # savieno iepriekšējo punktu ar jauno punktu uz līnijas
-                # Atrod punktu šūnā pa kreisi
-                left_cell_of_edge = get_side_cell([ep1, ep2], cells_2D, right=False)
-                right_cell_of_edge = get_side_cell([ep1, ep2], cells_2D, right=True)
-                point_in_left_cell = None
-                point_in_right_cell = None
-                for point in reversed(points_in_cells):
-                    if is_part_of_shape(point, left_cell_of_edge):
-                        point_in_left_cell = point
-                        
-                    if is_part_of_shape(point, right_cell_of_edge):
-                        point_in_right_cell = point
-                
-                ax.plot(
-                    [point_in_left_cell[0], closest_POE[0]],
-                    [point_in_left_cell[1], closest_POE[1]],
-                    color="black")
-                
-                if point_in_right_cell:
-                    ax.plot(
-                        [point_in_right_cell[0], closest_POE[0]],
-                        [point_in_right_cell[1], closest_POE[1]],
-                        color="black")
+                # Pārbauda, vai izvēlētais punkts pieder kādai 2D šūnai
+                point_valid = False
+                for i, cell in enumerate(cells_2D):
+                    if is_part_of_shape(clicked_point, cell):
+                        closest_2D_centroid_goal = centroids_2D[i]
+                        point_valid = True
+                        break
+                if not point_valid:
+                    print("Izvēlies 2D šūnai piederīgu mērķa punktu")
+                    return
+                # Punkts ir derīgs
+                goal = clicked_point
+                # Dzēš punktu, ja iepriekš jau bija izvēlēts
+                if goal_scat and goal_line_plot and goal_label:
+                    goal_line_plot.remove()
+                    goal_scat.remove()
+                    goal_label.remove()
+                    goal_line_plot = None
+                    goal_scat = None
+                    goal_label = None
+                if path_plot:
+                    for pp in path_plot:
+                        pp.remove()
+                    path_plot = None
 
-                points_on_lines.append(closest_POE)
-            plt.draw()
+                # atrod tuvāko 2D šunas centroīdu, kurai pievienot punktu
+                goal_scat = ax.scatter(*goal, s=30, color="lime")
+                goal_line_plot, = ax.plot([ closest_2D_centroid_goal[0], goal[0] ],
+                                          [ closest_2D_centroid_goal[1], goal[1] ],
+                                          color="dodgerblue", linewidth=1.5)
+                goal_label = ax.annotate("Mērķis", goal, color="red", fontsize=14)
+                plt.draw()
+                
+
+            if start != None and goal != None:
+                #info_plot.remove()
+                # pievieno virsotnes un lokus grafam
+                graph.add_node(start, pos=start)
+                graph.add_edge(start, closest_2D_centroid_start, length=distance(start, closest_2D_centroid_start))
+
+                graph.add_node(goal, pos=goal)
+                graph.add_edge(goal, closest_2D_centroid_goal, length=distance(goal, closest_2D_centroid_goal))
+                
+                # Izplāno ceļu
+                path,_ = A_star(graph, start, goal)
+                # Vizualizē ceļu
+                lines_x = []
+                lines_y = []
+                for i in range(len(path)-1):
+                    x1, y1 = path[i]
+                    x2, y2 = path[(i+1)]
+                    lines_x.append([x1, x2])
+                    lines_y.append([y1, y2])
+                path_plot = ax.plot(lines_x, lines_y, color="tab:red", linewidth=2)
+                plt.draw()
+
+                # noņem virsotnes un lokus gadījumam, ja veic pārplānošanu
+                graph.remove_edge(start, closest_2D_centroid_start)
+                graph.remove_edge(goal, closest_2D_centroid_goal)
+                graph.remove_node(start)
+                graph.remove_node(goal)
+                        
+
+
 
     
     def on_key(event):
-        pass
-    
+        nonlocal drawn
+        nonlocal info_plot
+        if event.key == "enter":
+            if drawn:
+                return
+            info_plot.remove()
+            for edge in list(graph.edges):
+                x1, y1 = edge[0]
+                x2, y2 = edge[1]
+
+                ax.plot([x1, x2], [y1, y2], color="dodgerblue", linewidth=1.5)
+                plt.pause(0.01)
+            drawn = True
+            instructions_text = """
+            LMB - iestata sākuma punktu
+            RMB - iestata mēŗka punktu
+            """
+            info_plot = ax.text(0, 1.01, instructions_text, transform=ax.transAxes, verticalalignment='top', fontsize=10, color="orangered")
+            plt.draw()
     
     fig.canvas.mpl_connect('button_press_event', on_click)
     fig.canvas.mpl_connect('key_press_event', on_key)
     plt.draw()
-
-    # TODO
-    # izveidot metodes, kuras piesaista fig
-    # metodes apstrādā mouse click
-    # left click - pievieno punktu 2d Cell
-    # righ click - pievino punktu 1d Cell
-    # Punktime jābūt savienojamiem (pārbauda ar get_side_edge?)
-    # Ja 1D punkts ir uz left/right edge cell, kas satur 2D punktu, tad veidot loku
-    # Nospiež enter - pabeidz zīmēt ceļa karti, izvēlas sākuma un beigu punktu
-
 
 def vertical_decomposition(all_vertices, input, output, fig, alpha=None, ax=plt):
     # Saraksts, kurā glabā visu šūnu stūra koordinātes
@@ -496,6 +553,7 @@ def vertical_decomposition(all_vertices, input, output, fig, alpha=None, ax=plt)
 
 def main(INPUT_FILE, LOADED_CELLS_FILE, ALPHA, OUTPUT_PATH, VERBOSE_MODE):
     fig, ax = plt.subplots(figsize=(10,10))
+    fig.subplots_adjust(left=0.05, right=0.95, bottom=0.05, top=0.95)
 
     def verbose_print(message):
         if VERBOSE_MODE:
@@ -515,14 +573,6 @@ def main(INPUT_FILE, LOADED_CELLS_FILE, ALPHA, OUTPUT_PATH, VERBOSE_MODE):
         f = open(LOADED_CELLS_FILE, "r")
         loaded_cells_str = f.read()
         cells = ast.literal_eval(loaded_cells_str)
-        #all_1D_cells = get_1D_cells(cells)
-        #all_1D_cells = np.array(all_1D_cells)
-        #print(all_1D_cells)
-        #print(all_1D_cells[:,0,0])
-        #for edge in all_1D_cells:
-        #    ax.plot(edge[:,0], edge[:,1], color="cyan")
-        #plt.show()
-        #exit()
         draw_loaded_cells(cells, alpha=ALPHA, fig=fig, ax=ax)
         stage_2 = True
     
