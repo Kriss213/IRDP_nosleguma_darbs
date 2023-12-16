@@ -5,7 +5,7 @@
 
 Darbināt ar
 ```
-python contour_estimator.py --input
+python ./contour_estimator.py --input ./demo/2D_map.png --alpha 0.005 -d -v --overwrite_json
 ```
 Argumenti:
 
@@ -26,8 +26,12 @@ Argumenti:
 
 Darbināt ar
 ```
-python discrete_planner.py --input --algorithm A* --start X Y --goal X Y
+python discrete_planner.py --input ./demo/2D_map.png --algorithm A* --start 237 416 --goal 934 1250 --grid_cols 80 --grid_rows 70 -v -d
 ```
+```
+python discrete_planner.py --input ./demo/2D_map.png --algorithm RRT --start 237 416 --goal 934 1250 -v -d --seed 1234
+```
+
 Argumenti:
 
 ```--input```, ```-i``` - obligāts arguments - norāde uz attēlu (2D karti);
@@ -53,6 +57,32 @@ Argumenti:
 ```--draw```, ```-d``` - vizualizēt rezultātu (automātiski, ja norādīts ```animate```);
 
 
-| A* algoritma piemērs              | RRT algoritma piemērs |
+| A* algoritma piemērs      | RRT algoritma piemērs |
 |---------------------------|---------------------------|
 | ![Alt Text](assets/A_star_repeat.gif) | ![Alt Text](assets/RRT_repeat.gif) |
+
+
+# Vertikālā dekompozīcija
+### vertical_decomposition.py
+
+Darbināt ar
+```
+python vertical_decomposition.py --input ./demo/2D_map.png --output ./demo/vertical_decomposition --alpha 0.0374 -v
+```
+```
+python vertical_decomposition.py --input ./demo/2D_map.png --load_data ./demo/2D_map_cells.txt --alpha 0.0374 -v
+```
+
+```--input```, ```-i``` - obligāts arguments - norāde uz attēlu (2D karti);
+
+```--load_data```, ```-l``` - ja iepriekš jau veikta vertikālā dekompozīcija, ar šo ielādē rezultāta failu;
+
+```--alpha```, ```-a``` - parametrs α nosaka aproksimācijas precizitāti. Noklusējumā α=0.01;
+
+```--output```, ```-o``` - norāde, kurā mapē glabāt vertikālās dekompozīcijas failu;
+
+```--verbose```, ```-v``` - izvadīt papildus informāciju.
+
+| Vertikālās dekompozīcijas piemērs | Sākuma un mērķa punkts |
+|-----------------------------------|------------------------|
+| ![Alt Text](assets/VD_repeat.gif) | ![Alt Text](assets/VD_start_goal.png) |
