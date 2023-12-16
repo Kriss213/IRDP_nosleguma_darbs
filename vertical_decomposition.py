@@ -392,7 +392,7 @@ def vertical_decomposition(all_vertices, input, output, fig, alpha=None, ax=plt)
     title_str = f"Vertikālā dekompozīcija: α={alpha}" if alpha else f"Vertikālā dekompozīcija"
     ax.set_title(title_str, fontsize=14)
     instructions_text ="""
-    LMB - Pievieno šūnai eksistējošu virsotni
+    LMB - Pievieno šūnai eksistējošu virsotni               !!Pirmā virsotne jāizvēlas OTRĀ no kreisās puses!!
     RMB - Izveido jaunu virsotni, pievieno to šūnai
     ENTER - saglabā jauno šūnu
     c - dzēš iesākto šūnu
@@ -400,12 +400,14 @@ def vertical_decomposition(all_vertices, input, output, fig, alpha=None, ax=plt)
     a - saglabā pašreizējo stāvokli failā
     q - KAD VISS PABEIGTS!
     """
+    vertice_selected = False
     ax.text(-0.1, 1.17, instructions_text, transform=ax.transAxes, verticalalignment='top', fontsize=10, color="orangered")
     def on_click(event):
         nonlocal available_vertice_scatter
         nonlocal last_point_scatter
         nonlocal cell_lines_plot
         nonlocal all_cell_lines_plot
+        nonlocal vertice_selected
         if event.inaxes != None and (event.button == 1 or event.button == 3):
             # Nolasa nospiestā punkta koordināted
             clicked_point = (event.xdata, event.ydata)
@@ -428,9 +430,11 @@ def vertical_decomposition(all_vertices, input, output, fig, alpha=None, ax=plt)
                 
                 last_point_scatter = ax.scatter(*closest_vertex, s=30, color="red")
                 print(f"Punkts {get_point_str(closest_vertex)} pievienots {len(cells)+1}. šūnai")
-
+                vertice_selected = True
             # LABAIS PELES KLIKŠĶIS, LAI PIEVIENOTU JAUNU VIRSOTNI
             elif event.button == 3:
+                if not vertice_selected:
+                    return
                 if last_point_scatter != None:
                     last_point_scatter.remove()
                 # Nomaina X koordināti uz ierpiekšējā punkta X
@@ -439,16 +443,16 @@ def vertical_decomposition(all_vertices, input, output, fig, alpha=None, ax=plt)
                 # Nosaka tuvāko krustpunktu pa vertikālo asi iepriekšējam punktam
                 closest_POE = find_closest_point_on_edge(all_vertices, clicked_point_POE, same_x=True)
 
-                cell_points.append(closest_POE)
-
                 # uzzīmē taisni
                 line, = ax.plot([cell_points[0][0], closest_POE[0]], [cell_points[0][1], closest_POE[1]], color="lawngreen")
                 cell_lines_plot.append(line)
                 all_cell_lines_plot.append(line)
                 last_point_scatter = ax.scatter(*closest_POE, s=30, color="red")
                 
+                cell_points.append(closest_POE)
+                
                 print(f"Punkts {get_point_str(closest_POE)} pievienots {len(cells)+1}. šūnai")
-        
+                vertice_selected = False
             plt.draw()
 
     def on_key(event):
@@ -456,6 +460,7 @@ def vertical_decomposition(all_vertices, input, output, fig, alpha=None, ax=plt)
         nonlocal cell_colors_iter
         nonlocal last_point_scatter
         nonlocal accepted_fills
+        nonlocal vertice_selected
         if event.key == "enter":
             if len(cell_points) < 3:
                 print(f"Pārāk maz šūnas punktu: {len(cell_points)}")
@@ -479,6 +484,7 @@ def vertical_decomposition(all_vertices, input, output, fig, alpha=None, ax=plt)
 
             cell_points.clear()
             cell_lines_plot.clear()
+            vertice_selected = False
         
         if event.key == "c":
             # Atjauno pēdējo stāvokli
@@ -491,7 +497,10 @@ def vertical_decomposition(all_vertices, input, output, fig, alpha=None, ax=plt)
                 last_point_scatter.remove()
                 last_point_scatter = None
             for line in cell_lines_plot:
-                line.remove()
+                try:
+                    line.remove()
+                except:
+                    pass
             
             # Zīmēt visas pieejamās virsotnes
             vtbc = np.array(vertices_to_be_checked)
@@ -500,6 +509,7 @@ def vertical_decomposition(all_vertices, input, output, fig, alpha=None, ax=plt)
             plt.draw()
             cell_points.clear()
             print(f"{len(cells)+1}. šūna iztīrīta!")
+            vertice_selected = False
         if event.key == "d":
             # Dzēš pēdējo šūnu
             if len(cells) == 0:
@@ -531,13 +541,18 @@ def vertical_decomposition(all_vertices, input, output, fig, alpha=None, ax=plt)
             vtbc = np.array(vertices_to_be_checked)
             available_vertice_scatter = ax.scatter(vtbc[:, 0], vtbc[:, 1], color="cyan", s=50)
             print("Dzēsta pēdējā šūna!")
+            vertice_selected = False
             plt.draw()
         if event.key == "a":
             # Saglabā šūnas, pabeidz vertikālo dekompozīciju
             filename, ext = os.path.splitext(input)
-            filename = filename.split(os.sep)[-1]
-            path_cells = os.path.join(output, f"{filename}_cells.txt")
-            path_img = os.path.join(output, f"{filename}_cells.png")
+            filename_split = filename.split(os.sep)[-1]
+            if filename_split == filename:
+                # nesakrīt slīpsvītras virziens
+                sep = "/" if os.sep=="\\" else "\\"
+                filename_split = filename.split(sep)[-1]
+            path_cells = os.path.join(output, f"{filename_split}_cells.txt")
+            path_img = os.path.join(output, f"{filename_split}_cells.png")
 
             with open(path_cells, mode="w") as file:
                 file.write(str(cells))
@@ -545,6 +560,7 @@ def vertical_decomposition(all_vertices, input, output, fig, alpha=None, ax=plt)
 
             plt.savefig(path_img)
             print(f"Saglabāti faili \"{path_cells}\" un \"{path_img}\"")
+            vertice_selected = False
          
     fig.canvas.mpl_connect('button_press_event', on_click)
     fig.canvas.mpl_connect('key_press_event', on_key)
@@ -553,7 +569,6 @@ def vertical_decomposition(all_vertices, input, output, fig, alpha=None, ax=plt)
 
 def main(INPUT_FILE, LOADED_CELLS_FILE, ALPHA, OUTPUT_PATH, VERBOSE_MODE):
     fig, ax = plt.subplots(figsize=(10,10))
-    fig.subplots_adjust(left=0.05, right=0.95, bottom=0.05, top=0.95)
 
     def verbose_print(message):
         if VERBOSE_MODE:
@@ -570,6 +585,7 @@ def main(INPUT_FILE, LOADED_CELLS_FILE, ALPHA, OUTPUT_PATH, VERBOSE_MODE):
     cells = None
     stage_2 = False
     if LOADED_CELLS_FILE != None:
+        fig.subplots_adjust(left=0.05, right=0.95, bottom=0.05, top=0.95)
         f = open(LOADED_CELLS_FILE, "r")
         loaded_cells_str = f.read()
         cells = ast.literal_eval(loaded_cells_str)
@@ -624,7 +640,7 @@ if __name__ == "__main__":
         raise Exception("Norādi ieejas failu!")
     
     if LOADED_CELLS_FILE and not os.path.exists(LOADED_CELLS_FILE):
-        raise Exception(f"Norādītais fails \"{OUTPUT_PATH}\" netika atrasts.")
+        raise Exception(f"Norādītais fails \"{LOADED_CELLS_FILE}\" netika atrasts.")
 
     if OUTPUT_PATH == None and LOADED_CELLS_FILE == None:
         raise Exception("Norādi izejas failu mapi!")
