@@ -65,10 +65,11 @@ Argumenti:
 # Vertikālā dekompozīcija
 ### vertical_decomposition.py
 
-Darbināt ar
+Lai veiktu vertikālu dekompozīciju, darbināt ar
 ```
 python vertical_decomposition.py --input ./demo/2D_map.png --output ./demo/vertical_decomposition --alpha 0.0374 -v
 ```
+Lai ielādētu vertikālās dekompozīcijas failu, darbināt ar
 ```
 python vertical_decomposition.py --input ./demo/2D_map.png --load_data ./demo/2D_map_cells.txt --alpha 0.0374 -v
 ```
