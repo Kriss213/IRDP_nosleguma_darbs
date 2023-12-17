@@ -6,6 +6,7 @@ import argparse
 from contour_estimator import main as process_image
 import networkx as nx
 from shapely.geometry import LineString, Polygon
+from collections import deque
 
 
 def is_part_of_shape(point, shape):
@@ -360,7 +361,42 @@ def draw_RRT(edge_list, ax=plt, animate=False, batch=10):
         if animate and (iter_nr == batch or i ==len(edge_list)-1 ):
             iter_nr = 0
             plt.pause(0.001)
-          
+
+# Definē viļņu frontes algoritmu
+def wavefront(graph, goal):
+    # Princips ļoti līdzīgs kā BFS algoritmam
+    # implementācija gandrīz identiska
+
+    # Inicializācija
+    visited = set()
+    # visām virsotnēm sākuma attālums ir -1: nesaniedzamas
+    # -1 šai gadījumā aizvieto bezgalību
+    distances = {node: -1 for node in graph.nodes}
+    # Izmanto deque, jo tas ir elementu pievienošana notiek O(1) laikā
+    # https://www.geeksforgeeks.org/deque-in-python/
+    queue = deque()
+
+    queue.append(goal)
+    visited.add(goal)
+    distances[goal] = 0
+
+    # attālumi sakārtoti secībā priekš animācijas
+    #distance_labels_in_order = 
+
+    while queue:
+        current_node = queue.popleft()
+
+        for neighbor in graph.neighbors(current_node):
+            if neighbor not in visited:
+                queue.append(neighbor)
+                visited.add(neighbor)
+
+                # Potenciāla (navigācijas) funkcija
+                distances[neighbor] = distances[current_node] + 1
+                
+
+    return distances
+
 def main(INPUT_FILE, ALGORITHM, ALPHA, VERBOSE_MODE, VISUALIZE, START, GOAL, GRID_SIZE_X, GRID_SIZE_Y, ANIMATE, SEED):
     def verbose_print(message):
         if VERBOSE_MODE:
@@ -394,14 +430,15 @@ def main(INPUT_FILE, ALGORITHM, ALPHA, VERBOSE_MODE, VISUALIZE, START, GOAL, GRI
     verbose_print(f"Ģenerēts grafs ar {len(graph.nodes)} virsotnēm.")
     
     # Uzstāda sākuma un mērķa punkuts (koordinātes)
-    START = tuple(START)
+    START = tuple(START) if ALGORITHM != "WF" else (0,0)
     GOAL = tuple(GOAL)
+    # Atrod tuvākos pieejamos režģa punktus
     start_prim = tuple(int(coord) for coord in min(graph.nodes, key=lambda graph_point: np.sum(np.abs( np.array(graph_point) - np.array(START) ))))
     goal_prim = tuple(int(coord) for coord in min(graph.nodes, key=lambda graph_point: np.sum(np.abs( np.array(graph_point) - np.array(GOAL) ))))
     start_X, start_Y = start_prim
     goal_X, goal_Y = goal_prim
 
-    if START != start_prim:
+    if START != start_prim and ALGORITHM != "WF":
         print(f"Sākuma punkts pārbītīdts no {START} uz {(start_X, start_Y)}")
 
     if  GOAL != goal_prim:
@@ -426,16 +463,23 @@ def main(INPUT_FILE, ALGORITHM, ALPHA, VERBOSE_MODE, VISUALIZE, START, GOAL, GRI
             seed = SEED)
         if found_goal:
             verbose_print(f"RRT atrada mērķi ar {len(list(RRT_graph.nodes))-2} iterācijām")
+    elif ALGORITHM == "WF":
+        distances = wavefront(graph, goal_prim)
+
 
     if VISUALIZE:
         # Vizualizē režģi, daudzstūrus, ceļu un apmeklētās virsotnes
         fig, ax = plt.subplots(figsize=(10,10))
         plot_grid(grid_X, grid_Y, colors)
         plot_polygon(all_vertices)
-        ax.scatter([ start_prim[0], goal_prim[0]], [start_prim[1], goal_prim[1]], color="dodgerblue", s=30)
-        ax.annotate("Starts", start_prim, color="red", fontsize=14)
-        ax.annotate("Mērķis", goal_prim, color="red", fontsize=14)
-        ax.set_title(f"Ceļš no {tuple(start_prim)} uz {tuple(goal_prim)}")
+        if ALGORITHM == "WF":
+            ax.scatter(goal_prim[0], goal_prim[1], color="red", s=100)
+            ax.set_title(f"Punkta {tuple(goal_prim)} viļņu fronte")
+        else:
+            ax.scatter([ start_prim[0], goal_prim[0]], [start_prim[1], goal_prim[1]], color="dodgerblue", s=30)
+            ax.annotate("Starts", start_prim, color="red", fontsize=14)
+            ax.annotate("Mērķis", goal_prim, color="red", fontsize=14)
+            ax.set_title(f"Ceļš no {tuple(start_prim)} uz {tuple(goal_prim)}")
         ax.invert_yaxis()
         aspect_ratio = X_pixels / Y_pixels
         ax.set_aspect(aspect_ratio)
@@ -458,7 +502,19 @@ def main(INPUT_FILE, ALGORITHM, ALPHA, VERBOSE_MODE, VISUALIZE, START, GOAL, GRI
                     lines_x.append([p1[0], p2[0]])
                     lines_y.append([p1[1], p2[1]])
                 plt.plot(lines_x, lines_y, color="red", linewidth=1.5)
-                   
+
+        elif ALGORITHM == "WF":
+            x = (GRID_SIZE_X + GRID_SIZE_Y) //2
+            fontsize = round(0.0014*x**2 - 0.2923*x + 20.609)
+            if ANIMATE:
+                distances = dict(sorted(distances.items(), key=lambda x: x[1]))
+            tmp_dist = 0
+            for node, distance in distances.items():
+                ax.annotate(distance, node, ha="center", va="center", fontsize=fontsize)
+                if ANIMATE and distance != tmp_dist:
+                    tmp_dist = distance
+                    plt.pause(0.01)
+            
         plt.show()
 
 if __name__ == "__main__":
@@ -466,9 +522,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Diskrēta ceļa plānošana, izmantojot A* algortimu")
 
     parser.add_argument("--input", "-i", help="Ceļš uz ieejas failu - attēlu", type=str)
-    parser.add_argument("--start", "-s", help="Sākuma punkts (x,y)", nargs="+", type=int)
-    parser.add_argument("--goal", "-g", help="Mērķa punkts (x,y)", nargs="+", type=int)
-    parser.add_argument("--algorithm", help="Algoritma izvēle (RRT vai A*)", type=str)
+    parser.add_argument("--start", "-s", help="Sākuma punkts (x,y)", metavar="X Y", nargs="+", type=int)
+    parser.add_argument("--goal", "-g", help="Mērķa punkts (x,y)", metavar="X Y", nargs="+", type=int)
+    parser.add_argument("--algorithm", help="Algoritma izvēle (RRT, A* vai WF)", type=str)
     parser.add_argument("--seed", help="RRT algoritmam iegūst atkārtojamus rezultātus", type=int)
     parser.add_argument("--animate", help="Animēt rezultātu", action="store_true")
     parser.add_argument("--grid_cols", help="Režģa kolonu skaits.", type=int, default=50)
@@ -494,10 +550,13 @@ if __name__ == "__main__":
     if INPUT_FILE == None:
         raise Exception("Norādi ieejas failu!")
 
-    if ALGORITHM == None or (ALGORITHM != "A*" and ALGORITHM != "RRT"):
-        raise Exception("Nederīga algoritma izvēle. Izvēlies RRT vai A*")
-
-    if START==None or GOAL==None:
+    if ALGORITHM == None or (ALGORITHM != "A*" and ALGORITHM != "RRT" and ALGORITHM != "WF"):
+        raise Exception("Nederīga algoritma izvēle. Izvēlies RRT, A* vai WF")
+    
+    if ALGORITHM == "WF":
+        if GOAL==None:
+            raise Exception("Norādi mērķa punktu!")
+    elif START==None or GOAL==None:
         raise Exception("Norādi sākuma un mērķa punktu!")
 
     if not VISUALIZE and ANIMATE:
