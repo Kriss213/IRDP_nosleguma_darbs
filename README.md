@@ -26,10 +26,13 @@ Argumenti:
 
 Darbināt ar
 ```
-python discrete_planner.py --input ./demo/2D_map.png --algorithm A* --start 237 416 --goal 934 1250 --grid_cols 80 --grid_rows 70 -v -d
+python discrete_planner.py --input ./demo/2D_map.png --algorithm A* --start 237 416 --goal 934 1250 --grid_cols 80 --grid_rows 70 -v -d --animate
 ```
 ```
-python discrete_planner.py --input ./demo/2D_map.png --algorithm RRT --start 237 416 --goal 934 1250 -v -d --seed 1234
+python discrete_planner.py --input ./demo/2D_map.png --algorithm RRT --start 237 416 --goal 934 1250 -v -d --seed 1234 --animate
+```
+```
+python discrete_planner.py --input ./demo/2D_map.png --algorithm WF --goal 1000 1000 -v -d --animate
 ```
 
 Argumenti:
@@ -40,7 +43,7 @@ Argumenti:
 
 ```--goal```, ```-g``` - obilgāts arguments - mērķa punkta X Y;
 
-```--algorithm``` - obligāts arguments - algoritms (A* vai RRT);
+```--algorithm``` - obligāts arguments - algoritms (A*, RRT vai WF);
 
 ```--seed``` - norādīt nejauši ģenerēto skaitļu sēklu;
 
@@ -57,9 +60,12 @@ Argumenti:
 ```--draw```, ```-d``` - vizualizēt rezultātu (automātiski, ja norādīts ```animate```);
 
 
-| A* algoritma piemērs      | RRT algoritma piemērs |
+| A* algoritma piemērs      | RRT algoritma piemērs | 
 |---------------------------|---------------------------|
-| ![Alt Text](assets/A_star_repeat.gif) | ![Alt Text](assets/RRT_repeat.gif) |
+| ![](assets/A_star_repeat.gif) | ![](assets/RRT_repeat.gif) |
+| <b>Viļņu frontes algoritma piemērs<b> |
+ ![](assets/WF_repeat.gif) |
+
 
 
 # Vertikālā dekompozīcija
@@ -86,4 +92,4 @@ python vertical_decomposition.py --input ./demo/2D_map.png --load_data ./demo/2D
 
 | Vertikālās dekompozīcijas piemērs | Sākuma un mērķa punkts |
 |-----------------------------------|------------------------|
-| ![Alt Text](assets/VD_repeat.gif) | ![Alt Text](assets/VD_start_goal.png) |
+| ![](assets/VD_repeat.gif) | ![](assets/VD_start_goal.png) |
